@@ -11,28 +11,33 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/BurntSushi/toml"
-	"github.com/jinzhu/configor"
+	"github.com/xitonix/configor"
 )
 
 type Anonymous struct {
 	Description string
 }
 
+type Connection struct {
+	Name     string
+	User     string `json:"user_name" default:"root"`
+	Password string `json:"pass" required:"true" env:"DBPassword"`
+	Port     uint   `default:"3306"`
+	Endpoint string `json:"ep,omitempty" required:"true"`
+}
+
+type Contact struct {
+	Name  string
+	Email string `required:"true"`
+}
+
 type Config struct {
 	APPName string `default:"configor"`
 	Hosts   []string
 
-	DB struct {
-		Name     string
-		User     string `default:"root"`
-		Password string `required:"true" env:"DBPassword"`
-		Port     uint   `default:"3306"`
-	}
+	DB Connection `required: true`
 
-	Contacts []struct {
-		Name  string
-		Email string `required:"true"`
-	}
+	Contacts []Contact
 
 	Anonymous `anonymous:"true"`
 
@@ -43,21 +48,14 @@ func generateDefaultConfig() Config {
 	config := Config{
 		APPName: "configor",
 		Hosts:   []string{"http://example.org", "http://jinzhu.me"},
-		DB: struct {
-			Name     string
-			User     string `default:"root"`
-			Password string `required:"true" env:"DBPassword"`
-			Port     uint   `default:"3306"`
-		}{
+		DB: Connection{
 			Name:     "configor",
 			User:     "configor",
 			Password: "configor",
 			Port:     3306,
+			Endpoint: "configor",
 		},
-		Contacts: []struct {
-			Name  string
-			Email string `required:"true"`
-		}{
+		Contacts: []Contact{
 			{
 				Name:  "Jinzhu",
 				Email: "wosmvp@gmail.com",
@@ -453,6 +451,163 @@ func TestOverwriteConfigurationWithEnvironment(t *testing.T) {
 				t.Errorf("result should equal to original configuration")
 			}
 		}
+	}
+}
+
+func TestOverwriteConfigurationWithJsonTagEnvironment(t *testing.T) {
+	config := generateDefaultConfig()
+
+	bytes, err := json.Marshal(config)
+	if err != nil {
+		t.Errorf("Failed to marshal the configuration object: %s", err)
+	}
+
+	file, err := ioutil.TempFile("/tmp", "configor")
+	if err != nil {
+		t.Errorf("Failed to create the temp file: %s", err)
+	}
+
+	_, err = file.Write(bytes)
+	if err != nil {
+		t.Errorf("Failed write into the temp file: %s", err)
+	}
+
+	defer func() {
+		_ = file.Close()
+		_ = os.Remove(file.Name())
+	}()
+
+	testCases := []struct {
+		title            string
+		withGlobalPrefix bool
+		usernameEnvTag   string
+		expectedUserName string
+		passwordEnvTag   string
+		expectedPassword string
+		endpointEnvTag   string
+		expectedEndpoint string
+	}{
+		{
+			title:            "with global prefix and with json tags environment variables",
+			withGlobalPrefix: true,
+
+			usernameEnvTag:   "DB_USER_NAME",
+			expectedUserName: "env user name",
+
+			passwordEnvTag:   "DBPassword",
+			expectedPassword: "env password",
+
+			endpointEnvTag:   "DB_EP",
+			expectedEndpoint: "env endpoint",
+		},
+		{
+			title:            "with global prefix and with field name environment variables",
+			withGlobalPrefix: true,
+
+			usernameEnvTag:   "DB_USER",
+			expectedUserName: "env user name",
+
+			passwordEnvTag:   "DBPassword",
+			expectedPassword: "env password",
+
+			endpointEnvTag:   "DB_ENDPOINT",
+			expectedEndpoint: "env endpoint",
+		},
+		{
+			title:            "with global prefix and with json tags environment variables when there is an `env` struct tag override",
+			withGlobalPrefix: true,
+
+			usernameEnvTag:   "DB_USER_NAME",
+			expectedUserName: "env user name",
+
+			passwordEnvTag:   "DB_PASS",
+			expectedPassword: "configor",
+
+			endpointEnvTag:   "DB_EP",
+			expectedEndpoint: "env endpoint",
+		},
+
+		{
+			title:            "without global prefix and with json tags environment variables",
+			withGlobalPrefix: false,
+
+			usernameEnvTag:   "DB_USER_NAME",
+			expectedUserName: "env user name",
+
+			passwordEnvTag:   "DBPassword",
+			expectedPassword: "env password",
+
+			endpointEnvTag:   "DB_EP",
+			expectedEndpoint: "env endpoint",
+		},
+		{
+			title:            "without global prefix and with field name environment variables",
+			withGlobalPrefix: false,
+
+			usernameEnvTag:   "DB_USER",
+			expectedUserName: "env user name",
+
+			passwordEnvTag:   "DBPassword",
+			expectedPassword: "env password",
+
+			endpointEnvTag:   "DB_ENDPOINT",
+			expectedEndpoint: "env endpoint",
+		},
+		{
+			title:            "without global prefix and with json tags environment variables when there is an `env` struct tag override",
+			withGlobalPrefix: false,
+
+			usernameEnvTag:   "DB_USER_NAME",
+			expectedUserName: "env user name",
+
+			passwordEnvTag:   "DB_PASS",
+			expectedPassword: "configor",
+
+			endpointEnvTag:   "DB_EP",
+			expectedEndpoint: "env endpoint",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.title, func(t *testing.T) {
+
+			var prefix string
+			if tc.withGlobalPrefix {
+				_ = os.Setenv("CONFIGOR_ENV_PREFIX", "app")
+				prefix = "APP_"
+			} else {
+				_ = os.Setenv("CONFIGOR_ENV_PREFIX", "-")
+			}
+
+			_ = os.Setenv(prefix+tc.usernameEnvTag, tc.expectedUserName)
+			_ = os.Setenv(prefix+tc.passwordEnvTag, tc.expectedPassword)
+			_ = os.Setenv(prefix+tc.endpointEnvTag, tc.expectedEndpoint)
+
+			defer func() {
+				_ = os.Setenv(prefix+tc.usernameEnvTag, "")
+				_ = os.Setenv(prefix+tc.passwordEnvTag, "")
+				_ = os.Setenv(prefix+tc.endpointEnvTag, "")
+				_ = os.Setenv("CONFIGOR_ENV_PREFIX", "")
+			}()
+
+			var result Config
+			err = configor.Load(&result, file.Name())
+			if err != nil {
+				t.Errorf("failed to load the temp config file: %s", err)
+			}
+
+			if result.DB.User != tc.expectedUserName {
+				t.Errorf("DB User | Expected: %s, Actual: %s", tc.expectedUserName, result.DB.User)
+			}
+
+			if result.DB.Password != tc.expectedPassword {
+				t.Errorf("DB Password | Expected: %s, Actual: %s", tc.expectedPassword, result.DB.Password)
+			}
+
+			if result.DB.Endpoint != tc.expectedEndpoint {
+				t.Errorf("DB Endpoint | Expected: %s, Actual: %s", tc.expectedEndpoint, result.DB.Endpoint)
+			}
+		})
 	}
 }
 

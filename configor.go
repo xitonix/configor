@@ -80,7 +80,6 @@ func (configor *Configor) Load(config interface{}, files ...string) error {
 			return err
 		}
 	}
-
 	prefix := configor.getENVPrefix(config)
 	if prefix == "-" {
 		return configor.processTags(config)

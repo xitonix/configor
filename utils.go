@@ -170,21 +170,35 @@ func (configor *Configor) processTags(config interface{}, prefixes ...string) er
 	configType := configValue.Type()
 	for i := 0; i < configType.NumField(); i++ {
 		var (
-			envNames    []string
-			fieldStruct = configType.Field(i)
-			field       = configValue.Field(i)
-			envName     = fieldStruct.Tag.Get("env") // read configuration from shell env
+			envNames     []string
+			fieldStruct  = configType.Field(i)
+			field        = configValue.Field(i)
+			envName      = fieldStruct.Tag.Get("env") // read configuration from shell env
+			jsonTagValue = fieldStruct.Tag.Get("json")
 		)
+
+		var jsonName string
+		if len(jsonTagValue) > 0 && jsonTagValue != "-" {
+			jsonName = strings.TrimSpace(strings.Split(jsonTagValue, ",")[0])
+		}
 
 		if !field.CanAddr() || !field.CanInterface() {
 			continue
 		}
 
 		if envName == "" {
-			envNames = append(envNames, strings.Join(append(prefixes, fieldStruct.Name), "_"))                  // Configor_DB_Name
-			envNames = append(envNames, strings.ToUpper(strings.Join(append(prefixes, fieldStruct.Name), "_"))) // CONFIGOR_DB_NAME
+			name := strings.Join(append(prefixes, fieldStruct.Name), "_")
+			// Configor_DB_Name and CONFIGOR_DB_NAME
+			envNames = append(envNames, name, strings.ToUpper(name))
+			if len(jsonName) > 0 {
+				name = strings.Join(append(prefixes, jsonName), "_")
+				envNames = append(envNames, name, strings.ToUpper(name))
+			}
 		} else {
 			envNames = []string{envName}
+			for _, prefix := range prefixes {
+				envNames = append(envNames, prefix+"_"+envName, strings.ToUpper(prefix)+"_"+envName)
+			}
 		}
 
 		if configor.Config.Verbose {
