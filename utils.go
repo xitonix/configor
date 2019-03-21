@@ -25,16 +25,6 @@ func (e *UnmatchedTomlKeysError) Error() string {
 	return fmt.Sprintf("There are keys in the config file that do not match any field in the given struct: %v", e.Keys)
 }
 
-func (configor *Configor) getENVPrefix(config interface{}) string {
-	if configor.Config.ENVPrefix == "" {
-		if prefix := os.Getenv("CONFIGOR_ENV_PREFIX"); prefix != "" {
-			return prefix
-		}
-		return "Configor"
-	}
-	return configor.Config.ENVPrefix
-}
-
 func getConfigurationFileWithENVPrefix(file, env string) (string, error) {
 	var (
 		envFile string
@@ -53,11 +43,11 @@ func getConfigurationFileWithENVPrefix(file, env string) (string, error) {
 	return "", fmt.Errorf("failed to find file %v", file)
 }
 
-func (configor *Configor) getConfigurationFiles(files ...string) []string {
+func (c *Configor) getConfigurationFiles(files ...string) []string {
 	var results []string
 
-	if configor.Config.Debug || configor.Config.Verbose {
-		fmt.Printf("Current environment: '%v'\n", configor.GetEnvironment())
+	if c.Config.Debug || c.Config.Verbose {
+		fmt.Printf("Current environment: '%v'\n", c.GetEnvironment())
 	}
 
 	for i := len(files) - 1; i >= 0; i-- {
@@ -71,7 +61,7 @@ func (configor *Configor) getConfigurationFiles(files ...string) []string {
 		}
 
 		// check configuration with env
-		if file, err := getConfigurationFileWithENVPrefix(file, configor.GetEnvironment()); err == nil {
+		if file, err := getConfigurationFileWithENVPrefix(file, c.GetEnvironment()); err == nil {
 			foundFile = true
 			results = append(results, file)
 		}
@@ -158,10 +148,59 @@ func getPrefixForStruct(prefixes []string, fieldStruct *reflect.StructField) []s
 	if fieldStruct.Anonymous && fieldStruct.Tag.Get("anonymous") == "true" {
 		return prefixes
 	}
-	return append(prefixes, fieldStruct.Name)
+
+	result := []string{strings.Join(append(prefixes, fieldStruct.Name), "_")}
+
+	jsonName := getJsonTag(fieldStruct)
+	if jsonName != "" {
+		result = append(result, strings.Join(append(prefixes, jsonName), "_"))
+	}
+
+	return result
 }
 
-func (configor *Configor) processTags(config interface{}, prefixes ...string) error {
+func getJsonTag(fieldStruct *reflect.StructField) string {
+	tag := fieldStruct.Tag.Get("json")
+	if len(tag) > 0 && tag != "-" {
+		return strings.TrimSpace(strings.Split(tag, ",")[0])
+	}
+	return ""
+}
+
+func (c *Configor) getEnvironmentVariables(fieldStruct reflect.StructField, prefixes ...string) []string {
+	envTagValue := fieldStruct.Tag.Get("env")
+	jsonTagValue := getJsonTag(&fieldStruct)
+
+	if envTagValue != "" {
+		result := []string{envTagValue}
+		if len(c.globalPrefix) > 0 {
+			result = append(result, c.globalPrefix+"_"+envTagValue, strings.ToUpper(c.globalPrefix)+"_"+envTagValue)
+		}
+		return result
+	}
+
+	result := make([]string, 0)
+
+	for _, prefix := range prefixes {
+		name := prefix + "_" + fieldStruct.Name
+		result = append(result, name, strings.ToUpper(name))
+		if len(jsonTagValue) > 0 {
+			name = prefix + "_" + jsonTagValue
+			result = append(result, name, strings.ToUpper(name))
+		}
+	}
+
+	if len(result) == 0 {
+		result = []string{fieldStruct.Name, strings.ToUpper(fieldStruct.Name)}
+		if len(jsonTagValue) > 0 {
+			result = append(result, jsonTagValue, strings.ToUpper(jsonTagValue))
+		}
+	}
+
+	return result
+}
+
+func (c *Configor) processTags(config interface{}, prefixes ...string) error {
 	configValue := reflect.Indirect(reflect.ValueOf(config))
 	if configValue.Kind() != reflect.Struct {
 		return errors.New("invalid config, should be struct")
@@ -170,45 +209,25 @@ func (configor *Configor) processTags(config interface{}, prefixes ...string) er
 	configType := configValue.Type()
 	for i := 0; i < configType.NumField(); i++ {
 		var (
-			envNames     []string
-			fieldStruct  = configType.Field(i)
-			field        = configValue.Field(i)
-			envName      = fieldStruct.Tag.Get("env") // read configuration from shell env
-			jsonTagValue = fieldStruct.Tag.Get("json")
+			fieldStruct = configType.Field(i)
+			field       = configValue.Field(i)
+			// read configuration from shell env
 		)
-
-		var jsonName string
-		if len(jsonTagValue) > 0 && jsonTagValue != "-" {
-			jsonName = strings.TrimSpace(strings.Split(jsonTagValue, ",")[0])
-		}
 
 		if !field.CanAddr() || !field.CanInterface() {
 			continue
 		}
 
-		if envName == "" {
-			name := strings.Join(append(prefixes, fieldStruct.Name), "_")
-			// Configor_DB_Name and CONFIGOR_DB_NAME
-			envNames = append(envNames, name, strings.ToUpper(name))
-			if len(jsonName) > 0 {
-				name = strings.Join(append(prefixes, jsonName), "_")
-				envNames = append(envNames, name, strings.ToUpper(name))
-			}
-		} else {
-			envNames = []string{envName}
-			for _, prefix := range prefixes {
-				envNames = append(envNames, prefix+"_"+envName, strings.ToUpper(prefix)+"_"+envName)
-			}
-		}
+		envNames := c.getEnvironmentVariables(fieldStruct, prefixes...)
 
-		if configor.Config.Verbose {
+		if c.Config.Verbose {
 			fmt.Printf("Trying to load struct `%v`'s field `%v` from env %v\n", configType.Name(), fieldStruct.Name, strings.Join(envNames, ", "))
 		}
 
 		// Load From Shell ENV
 		for _, env := range envNames {
 			if value := os.Getenv(env); value != "" {
-				if configor.Config.Debug || configor.Config.Verbose {
+				if c.Config.Debug || c.Config.Verbose {
 					fmt.Printf("Loading configuration for struct `%v`'s field `%v` from env %v...\n", configType.Name(), fieldStruct.Name, env)
 				}
 				if err := yaml.Unmarshal([]byte(value), field.Addr().Interface()); err != nil {
@@ -235,7 +254,7 @@ func (configor *Configor) processTags(config interface{}, prefixes ...string) er
 		}
 
 		if field.Kind() == reflect.Struct {
-			if err := configor.processTags(field.Addr().Interface(), getPrefixForStruct(prefixes, &fieldStruct)...); err != nil {
+			if err := c.processTags(field.Addr().Interface(), getPrefixForStruct(prefixes, &fieldStruct)...); err != nil {
 				return err
 			}
 		}
@@ -243,7 +262,7 @@ func (configor *Configor) processTags(config interface{}, prefixes ...string) er
 		if field.Kind() == reflect.Slice {
 			for i := 0; i < field.Len(); i++ {
 				if reflect.Indirect(field.Index(i)).Kind() == reflect.Struct {
-					if err := configor.processTags(field.Index(i).Addr().Interface(), append(getPrefixForStruct(prefixes, &fieldStruct), fmt.Sprint(i))...); err != nil {
+					if err := c.processTags(field.Index(i).Addr().Interface(), append(getPrefixForStruct(prefixes, &fieldStruct), fmt.Sprint(i))...); err != nil {
 						return err
 					}
 				}

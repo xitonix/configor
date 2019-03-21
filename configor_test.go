@@ -27,8 +27,9 @@ type Connection struct {
 }
 
 type Contact struct {
-	Name  string
-	Email string `required:"true"`
+	Name     string `json:"first_name"`
+	LastName string
+	Email    string `required:"true"`
 }
 
 type Config struct {
@@ -37,7 +38,9 @@ type Config struct {
 
 	DB Connection `required: true`
 
-	Contacts []Contact
+	Contacts       []Contact
+	PrimaryContact Contact  `json:"primary_contact"`
+	ContactPtr     *Contact `json:"contact_ptr"`
 
 	Anonymous `anonymous:"true"`
 
@@ -60,6 +63,16 @@ func generateDefaultConfig() Config {
 				Name:  "Jinzhu",
 				Email: "wosmvp@gmail.com",
 			},
+		},
+		PrimaryContact: Contact{
+			Name:     "configor",
+			LastName: "configor",
+			Email:    "configor@xitonix.io",
+		},
+		ContactPtr: &Contact{
+			Name:     "configor",
+			LastName: "configor",
+			Email:    "configor@xitonix.io",
 		},
 		Anonymous: Anonymous{
 			Description: "This is an anonymous embedded struct whose environment variables should NOT include 'ANONYMOUS'",
@@ -454,7 +467,7 @@ func TestOverwriteConfigurationWithEnvironment(t *testing.T) {
 	}
 }
 
-func TestOverwriteConfigurationWithJsonTagEnvironment(t *testing.T) {
+func TestOverwriteConfigurationWithJsonTag(t *testing.T) {
 	config := generateDefaultConfig()
 
 	bytes, err := json.Marshal(config)
@@ -514,7 +527,7 @@ func TestOverwriteConfigurationWithJsonTagEnvironment(t *testing.T) {
 			expectedEndpoint: "env endpoint",
 		},
 		{
-			title:            "with global prefix and with json tags environment variables when there is an `env` struct tag override",
+			title:            "with global prefix and with json tags environment variables when there is an env struct tag override",
 			withGlobalPrefix: true,
 
 			usernameEnvTag:   "DB_USER_NAME",
@@ -611,6 +624,308 @@ func TestOverwriteConfigurationWithJsonTagEnvironment(t *testing.T) {
 	}
 }
 
+func TestOverwriteConfigurationOfNestedTypeWithJsonTag(t *testing.T) {
+	config := generateDefaultConfig()
+
+	bytes, err := json.Marshal(config)
+	if err != nil {
+		t.Errorf("Failed to marshal the configuration object: %s", err)
+	}
+
+	file, err := ioutil.TempFile("/tmp", "configor")
+	if err != nil {
+		t.Errorf("Failed to create the temp file: %s", err)
+	}
+
+	_, err = file.Write(bytes)
+	if err != nil {
+		t.Errorf("Failed write into the temp file: %s", err)
+	}
+
+	defer func() {
+		_ = file.Close()
+		_ = os.Remove(file.Name())
+	}()
+
+	testCases := []struct {
+		title             string
+		withGlobalPrefix  bool
+		firstNameEnvTag   string
+		expectedFirstName string
+		lastNameEnvTag    string
+		expectedLastName  string
+	}{
+		{
+			title:            "with global prefix and with json tags environment variables",
+			withGlobalPrefix: true,
+
+			firstNameEnvTag:   "PRIMARY_CONTACT_FIRST_NAME",
+			expectedFirstName: "env first name",
+
+			lastNameEnvTag:   "PRIMARY_CONTACT_LASTNAME",
+			expectedLastName: "env last name",
+		},
+		{
+			title:            "with global prefix and field name",
+			withGlobalPrefix: true,
+
+			firstNameEnvTag:   "PRIMARYCONTACT_NAME",
+			expectedFirstName: "env first name",
+
+			lastNameEnvTag:   "PRIMARYCONTACT_LASTNAME",
+			expectedLastName: "env last name",
+		},
+		{
+			title:            "with global prefix and with parent json tags environment variables",
+			withGlobalPrefix: true,
+
+			firstNameEnvTag:   "PRIMARY_CONTACT_NAME",
+			expectedFirstName: "env first name",
+
+			lastNameEnvTag:   "PRIMARY_CONTACT_LASTNAME",
+			expectedLastName: "env last name",
+		},
+		{
+			title:            "with global prefix parent filed name and child json tag environment variables",
+			withGlobalPrefix: true,
+
+			firstNameEnvTag:   "PRIMARYCONTACT_FIRST_NAME",
+			expectedFirstName: "env first name",
+
+			lastNameEnvTag:   "PRIMARYCONTACT_LASTNAME",
+			expectedLastName: "env last name",
+		},
+
+		{
+			title:            "without global prefix and with json tags environment variables",
+			withGlobalPrefix: false,
+
+			firstNameEnvTag:   "PRIMARY_CONTACT_FIRST_NAME",
+			expectedFirstName: "env first name",
+
+			lastNameEnvTag:   "PRIMARY_CONTACT_LASTNAME",
+			expectedLastName: "env last name",
+		},
+		{
+			title:            "without global prefix and field name",
+			withGlobalPrefix: false,
+
+			firstNameEnvTag:   "PRIMARYCONTACT_NAME",
+			expectedFirstName: "env first name",
+
+			lastNameEnvTag:   "PRIMARYCONTACT_LASTNAME",
+			expectedLastName: "env last name",
+		},
+		{
+			title:            "without global prefix and with parent json tags environment variables",
+			withGlobalPrefix: false,
+
+			firstNameEnvTag:   "PRIMARY_CONTACT_NAME",
+			expectedFirstName: "env first name",
+
+			lastNameEnvTag:   "PRIMARY_CONTACT_LASTNAME",
+			expectedLastName: "env last name",
+		},
+		{
+			title:            "without global prefix parent filed name and child json tag environment variables",
+			withGlobalPrefix: false,
+
+			firstNameEnvTag:   "PRIMARYCONTACT_FIRST_NAME",
+			expectedFirstName: "env first name",
+
+			lastNameEnvTag:   "PRIMARYCONTACT_LASTNAME",
+			expectedLastName: "env last name",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.title, func(t *testing.T) {
+
+			var prefix string
+			if tc.withGlobalPrefix {
+				_ = os.Setenv("CONFIGOR_ENV_PREFIX", "app")
+				prefix = "APP_"
+			} else {
+				_ = os.Setenv("CONFIGOR_ENV_PREFIX", "-")
+			}
+
+			_ = os.Setenv(prefix+tc.firstNameEnvTag, tc.expectedFirstName)
+			_ = os.Setenv(prefix+tc.lastNameEnvTag, tc.expectedLastName)
+
+			defer func() {
+				_ = os.Setenv(prefix+tc.firstNameEnvTag, "")
+				_ = os.Setenv(prefix+tc.lastNameEnvTag, "")
+				_ = os.Setenv("CONFIGOR_ENV_PREFIX", "")
+			}()
+
+			var result Config
+			err = configor.Load(&result, file.Name())
+			if err != nil {
+				t.Errorf("failed to load the temp config file: %s", err)
+			}
+
+			if result.PrimaryContact.Name != tc.expectedFirstName {
+				t.Errorf("First Name | Expected: %s, Actual: %s", tc.expectedFirstName, result.PrimaryContact.Name)
+			}
+
+			if result.PrimaryContact.LastName != tc.expectedLastName {
+				t.Errorf("Last Name | Expected: %s, Actual: %s", tc.expectedLastName, result.PrimaryContact.LastName)
+			}
+		})
+	}
+}
+
+func TestOverwriteConfigurationOfNestedPointerWithJsonTag(t *testing.T) {
+	config := generateDefaultConfig()
+
+	bytes, err := json.Marshal(config)
+	if err != nil {
+		t.Errorf("Failed to marshal the configuration object: %s", err)
+	}
+
+	file, err := ioutil.TempFile("/tmp", "configor")
+	if err != nil {
+		t.Errorf("Failed to create the temp file: %s", err)
+	}
+
+	_, err = file.Write(bytes)
+	if err != nil {
+		t.Errorf("Failed write into the temp file: %s", err)
+	}
+
+	defer func() {
+		_ = file.Close()
+		_ = os.Remove(file.Name())
+	}()
+
+	testCases := []struct {
+		title             string
+		withGlobalPrefix  bool
+		firstNameEnvTag   string
+		expectedFirstName string
+		lastNameEnvTag    string
+		expectedLastName  string
+	}{
+		{
+			title:            "with global prefix and with json tags environment variables",
+			withGlobalPrefix: true,
+
+			firstNameEnvTag:   "CONTACT_PTR_FIRST_NAME",
+			expectedFirstName: "env first name",
+
+			lastNameEnvTag:   "CONTACT_PTR_LASTNAME",
+			expectedLastName: "env last name",
+		},
+		{
+			title:            "with global prefix and field name",
+			withGlobalPrefix: true,
+
+			firstNameEnvTag:   "CONTACTPTR_NAME",
+			expectedFirstName: "env first name",
+
+			lastNameEnvTag:   "CONTACTPTR_LASTNAME",
+			expectedLastName: "env last name",
+		},
+		{
+			title:            "with global prefix and with parent json tags environment variables",
+			withGlobalPrefix: true,
+
+			firstNameEnvTag:   "CONTACT_PTR_NAME",
+			expectedFirstName: "env first name",
+
+			lastNameEnvTag:   "CONTACT_PTR_LASTNAME",
+			expectedLastName: "env last name",
+		},
+		{
+			title:            "with global prefix parent filed name and child json tag environment variables",
+			withGlobalPrefix: true,
+
+			firstNameEnvTag:   "CONTACTPTR_FIRST_NAME",
+			expectedFirstName: "env first name",
+
+			lastNameEnvTag:   "CONTACTPTR_LASTNAME",
+			expectedLastName: "env last name",
+		},
+
+		{
+			title:            "without global prefix and with json tags environment variables",
+			withGlobalPrefix: false,
+
+			firstNameEnvTag:   "CONTACT_PTR_FIRST_NAME",
+			expectedFirstName: "env first name",
+
+			lastNameEnvTag:   "CONTACT_PTR_LASTNAME",
+			expectedLastName: "env last name",
+		},
+		{
+			title:            "without global prefix and field name",
+			withGlobalPrefix: false,
+
+			firstNameEnvTag:   "CONTACTPTR_NAME",
+			expectedFirstName: "env first name",
+
+			lastNameEnvTag:   "CONTACTPTR_LASTNAME",
+			expectedLastName: "env last name",
+		},
+		{
+			title:            "without global prefix and with parent json tags environment variables",
+			withGlobalPrefix: false,
+
+			firstNameEnvTag:   "CONTACT_PTR_NAME",
+			expectedFirstName: "env first name",
+
+			lastNameEnvTag:   "CONTACT_PTR_LASTNAME",
+			expectedLastName: "env last name",
+		},
+		{
+			title:            "without global prefix parent filed name and child json tag environment variables",
+			withGlobalPrefix: false,
+
+			firstNameEnvTag:   "CONTACTPTR_FIRST_NAME",
+			expectedFirstName: "env first name",
+
+			lastNameEnvTag:   "CONTACTPTR_LASTNAME",
+			expectedLastName: "env last name",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.title, func(t *testing.T) {
+
+			var prefix string
+			if tc.withGlobalPrefix {
+				_ = os.Setenv("CONFIGOR_ENV_PREFIX", "app")
+				prefix = "APP_"
+			} else {
+				_ = os.Setenv("CONFIGOR_ENV_PREFIX", "-")
+			}
+
+			_ = os.Setenv(prefix+tc.firstNameEnvTag, tc.expectedFirstName)
+			_ = os.Setenv(prefix+tc.lastNameEnvTag, tc.expectedLastName)
+
+			defer func() {
+				_ = os.Setenv(prefix+tc.firstNameEnvTag, "")
+				_ = os.Setenv(prefix+tc.lastNameEnvTag, "")
+				_ = os.Setenv("CONFIGOR_ENV_PREFIX", "")
+			}()
+
+			var result Config
+			err = configor.Load(&result, file.Name())
+			if err != nil {
+				t.Errorf("failed to load the temp config file: %s", err)
+			}
+
+			if result.ContactPtr.Name != tc.expectedFirstName {
+				t.Errorf("First Name | Expected: %s, Actual: %s", tc.expectedFirstName, result.ContactPtr.Name)
+			}
+
+			if result.ContactPtr.LastName != tc.expectedLastName {
+				t.Errorf("Last Name | Expected: %s, Actual: %s", tc.expectedLastName, result.ContactPtr.LastName)
+			}
+		})
+	}
+}
+
 func TestOverwriteConfigurationWithEnvironmentThatSetByConfig(t *testing.T) {
 	config := generateDefaultConfig()
 
@@ -653,6 +968,7 @@ func TestResetPrefixToBlank(t *testing.T) {
 			defer os.Setenv("CONFIGOR_ENV_PREFIX", "")
 			defer os.Setenv("APPNAME", "")
 			defer os.Setenv("DB_NAME", "")
+
 			configor.Load(&result, file.Name())
 
 			var defaultConfig = generateDefaultConfig()
