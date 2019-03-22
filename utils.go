@@ -162,7 +162,10 @@ func getPrefixForStruct(prefixes []string, fieldStruct *reflect.StructField) []s
 func getJsonTag(fieldStruct *reflect.StructField) string {
 	tag := fieldStruct.Tag.Get("json")
 	if len(tag) > 0 && tag != "-" {
-		return strings.TrimSpace(strings.Split(tag, ",")[0])
+		value := strings.TrimSpace(strings.TrimSpace(strings.Split(tag, ",")[0]))
+		if len(value) > 0 && value != "-" {
+			return value
+		}
 	}
 	return ""
 }
