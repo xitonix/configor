@@ -248,7 +248,11 @@ func (c *Configor) processTags(config interface{}, prefixes ...string) error {
 				}
 			} else if fieldStruct.Tag.Get("required") == "true" {
 				// return error if it is required but blank
-				return errors.New(fieldStruct.Name + " is required, but blank")
+				name := fieldStruct.Name
+				if len(prefixes) > 0 && len(envNames) > 0 {
+					name = strings.ToUpper(envNames[len(envNames)-1])
+				}
+				return errors.New(name + " is required, but blank")
 			}
 		}
 
