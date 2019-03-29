@@ -227,6 +227,11 @@ func (c *Configor) processTags(config interface{}, prefixes ...string) error {
 			field       = configValue.Field(i)
 		)
 
+		if field.Kind() == reflect.Ptr && field.IsNil() {
+			// Nested pointers with nil value
+			field = reflect.New(field.Type().Elem()).Elem()
+		}
+
 		if !field.CanAddr() || !field.CanInterface() {
 			continue
 		}
