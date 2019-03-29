@@ -148,12 +148,23 @@ func getPrefixForStruct(prefixes []string, fieldStruct *reflect.StructField) []s
 	if fieldStruct.Anonymous && fieldStruct.Tag.Get("anonymous") == "true" {
 		return prefixes
 	}
-
-	result := []string{strings.Join(append(prefixes, fieldStruct.Name), "_")}
+	result := make([]string, 0)
+	for _, p := range prefixes {
+		result = append(result, p+"_"+fieldStruct.Name)
+	}
 
 	jsonName := getJsonTag(fieldStruct)
 	if jsonName != "" {
-		result = append(result, strings.Join(append(prefixes, jsonName), "_"))
+		for _, p := range prefixes {
+			result = append(result, p+"_"+jsonName)
+		}
+	}
+
+	if len(result) == 0 {
+		result = append(result, fieldStruct.Name)
+		if jsonName != "" {
+			result = append(result, jsonName)
+		}
 	}
 
 	return result
@@ -214,7 +225,6 @@ func (c *Configor) processTags(config interface{}, prefixes ...string) error {
 		var (
 			fieldStruct = configType.Field(i)
 			field       = configValue.Field(i)
-			// read configuration from shell env
 		)
 
 		if !field.CanAddr() || !field.CanInterface() {
