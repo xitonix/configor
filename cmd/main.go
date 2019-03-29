@@ -6,18 +6,22 @@ import (
 	"log"
 )
 
-type connection struct {
+type Connection struct {
 	Endpoint string `json:"endpoint" required:"true"`
 }
 
 type config struct {
-	Connection connection `json:"database"`
-	Port       int        `json:"port" required:"true"`
+	*Connection
+	Port int  `json:"port" required:"true"`
+	I    *int `json:"integer" required:"true""`
 }
 
 func main() {
-
-	cfg := config{}
+	i := 1000
+	cfg := config{
+		Port: 100,
+		I:    &i,
+	}
 	err := configor.New(&configor.Config{
 		ENVPrefix:            "APP",
 		Debug:                false,
@@ -29,5 +33,5 @@ func main() {
 		log.Fatal(err)
 	}
 
-	fmt.Printf("%+v", cfg)
+	fmt.Printf("%+v", cfg.Endpoint)
 }

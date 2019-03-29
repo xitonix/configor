@@ -237,7 +237,7 @@ func (c *Configor) processTags(config interface{}, prefixes ...string) error {
 		}
 
 		envNames := c.getEnvironmentVariables(fieldStruct, prefixes...)
-
+		fmt.Println(envNames)
 		if c.Config.Verbose {
 			fmt.Printf("Trying to load struct `%v`'s field `%v` from env %v\n", configType.Name(), fieldStruct.Name, strings.Join(envNames, ", "))
 		}
