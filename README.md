@@ -11,7 +11,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/jinzhu/configor"
+	"github.com/xitonix/configor"
 )
 
 var Config = struct {
@@ -181,11 +181,11 @@ You can help to make the project better, check out [http://gorm.io/contribute.ht
 
 ## Author
 
-**jinzhu**
+**xitonix**
 
-* <http://github.com/jinzhu>
+* <http://github.com/xitonix>
 * <wosmvp@gmail.com>
-* <http://twitter.com/zhangjinzhu>
+* <http://twitter.com/zhangxitonix>
 
 ## License
 

@@ -50,7 +50,7 @@ type Config struct {
 func generateDefaultConfig() Config {
 	config := Config{
 		APPName: "configor",
-		Hosts:   []string{"http://example.org", "http://jinzhu.me"},
+		Hosts:   []string{"http://example.org", "http://xitonix.me"},
 		DB: Connection{
 			Name:     "configor",
 			User:     "configor",
@@ -60,7 +60,7 @@ func generateDefaultConfig() Config {
 		},
 		Contacts: []Contact{
 			{
-				Name:  "Jinzhu",
+				Name:  "xitonix",
 				Email: "wosmvp@gmail.com",
 			},
 		},
@@ -422,7 +422,7 @@ func TestOverwriteConfigurationWithEnvironmentWithDefaultPrefix(t *testing.T) {
 			file.Write(bytes)
 			var result Config
 			os.Setenv("CONFIGOR_APPNAME", "config2")
-			os.Setenv("CONFIGOR_HOSTS", "- http://example.org\n- http://jinzhu.me")
+			os.Setenv("CONFIGOR_HOSTS", "- http://example.org\n- http://xitonix.me")
 			os.Setenv("CONFIGOR_DB_NAME", "db_name")
 			defer os.Setenv("CONFIGOR_APPNAME", "")
 			defer os.Setenv("CONFIGOR_HOSTS", "")
@@ -431,7 +431,7 @@ func TestOverwriteConfigurationWithEnvironmentWithDefaultPrefix(t *testing.T) {
 
 			var defaultConfig = generateDefaultConfig()
 			defaultConfig.APPName = "config2"
-			defaultConfig.Hosts = []string{"http://example.org", "http://jinzhu.me"}
+			defaultConfig.Hosts = []string{"http://example.org", "http://xitonix.me"}
 			defaultConfig.DB.Name = "db_name"
 			if !reflect.DeepEqual(result, defaultConfig) {
 				t.Errorf("result should equal to original configuration")
