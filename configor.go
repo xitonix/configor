@@ -87,12 +87,6 @@ func (c *Configor) GetErrorOnUnmatchedKeys() bool {
 
 // Load will unmarshal configurations to struct from files that you provide
 func (c *Configor) Load(config interface{}, files ...string) error {
-	defer func() {
-		if c.Config.Debug || c.Config.Verbose {
-			fmt.Printf("Configuration:\n  %#v\n", config)
-		}
-	}()
-
 	for _, file := range c.getConfigurationFiles(files...) {
 		if c.Config.Debug || c.Config.Verbose {
 			fmt.Printf("Loading configurations from file '%v'...\n", file)
